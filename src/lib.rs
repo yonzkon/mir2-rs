@@ -7,6 +7,36 @@ use winit::{
     event_loop::ControlFlow,
 };
 
+use wgpu::util::DeviceExt;
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct Vertex {
+    position: [f32; 3],
+    color: [f32; 3],
+}
+
+impl Vertex {
+    const ATTRIBS: [wgpu::VertexAttribute; 2] =
+        wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3];
+
+    fn desc() -> wgpu::VertexBufferLayout<'static> {
+        use std::mem;
+
+        wgpu::VertexBufferLayout {
+            array_stride: mem::size_of::<Self>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &Self::ATTRIBS,
+        }
+    }
+}
+
+const VERTICES: &[Vertex] = &[
+    Vertex { position: [0.0, 0.5, 0.0], color: [1.0, 0.0, 0.0] },
+    Vertex { position: [-0.5, -0.5, 0.0], color: [0.0, 1.0, 0.0] },
+    Vertex { position: [0.5, -0.5, 0.0], color: [0.0, 0.0, 1.0] },
+];
+
 struct State {
     window: Window,
     surface: wgpu::Surface,
@@ -17,6 +47,8 @@ struct State {
     render_pipeline: wgpu::RenderPipeline,
     render_pipeline2: wgpu::RenderPipeline,
     pipeline_idx: u32,
+    vertex_buffer: wgpu::Buffer,
+    num_vertices: u32,
 }
 
 impl State {
@@ -147,7 +179,9 @@ impl State {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: "vs_main", // 1.
-                buffers: &[], // 2.
+                buffers: &[
+                    Vertex::desc(),
+                ],
             },
             fragment: Some(wgpu::FragmentState { // 3.
                 module: &shader,
@@ -181,6 +215,16 @@ impl State {
 
         let pipeline_idx = 0;
 
+        let vertex_buffer = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Vertex Buffer"),
+                contents: bytemuck::cast_slice(VERTICES),
+                usage: wgpu::BufferUsages::VERTEX,
+            }
+        );
+
+        let num_vertices = VERTICES.len() as u32;
+
         Self {
             window,
             surface,
@@ -191,6 +235,8 @@ impl State {
             render_pipeline,
             render_pipeline2,
             pipeline_idx,
+            vertex_buffer,
+            num_vertices,
         }
     }
 
@@ -242,10 +288,12 @@ impl State {
 
             if self.pipeline_idx == 0 {
                 render_pass.set_pipeline(&self.render_pipeline); // 2.
+                render_pass.draw(0..3, 0..1); // 3.
             } else {
                 render_pass.set_pipeline(&self.render_pipeline2); // 2.
+                render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                render_pass.draw(0..self.num_vertices, 0..1);
             }
-            render_pass.draw(0..3, 0..1); // 3.
         }
 
         // submit will accept anything that implements IntoIter
